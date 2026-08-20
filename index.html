@@ -339,7 +339,13 @@
       const names = [];
       for (const record of state.records) {
         if (record.major !== state.selectedMajor) continue;
-        const name = record.name || record.availability[state.selectedTime];
+        let name = '';
+        if (record.time) {
+          if (record.time !== state.selectedTime) continue;
+          name = record.name;
+        } else if (record.availability) {
+          name = record.availability[state.selectedTime];
+        }
         if (!name) continue;
         if (seen.has(name)) continue;
         seen.add(name);
