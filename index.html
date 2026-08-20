@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>课程空闲查询</title>
+  <script src="./vendor/xlsx.full.min.js"></script>
+  <script src="./availability-data.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --line: #d8e1ee;
+      --text: #172033;
+      --muted: #66758f;
+      --accent: #2457ff;
+      --accent-soft: #eaf0ff;
+      --good: #128a48;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar, .main {
+      padding: 20px;
+    }
+
+    .sidebar {
+      background: #fff;
+      border-right: 1px solid var(--line);
+    }
+
+    .main {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    select, button, input[type="file"] {
+      width: 100%;
+      font: inherit;
+    }
+
+    select, button {
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 0 12px;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    button.tab {
+      width: auto;
+      min-width: 110px;
+      white-space: nowrap;
+      text-align: left;
+      background: #fff;
+    }
+
+    button.tab.active {
+      background: var(--accent-soft);
+      border-color: #b8c8ff;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .result-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .count {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--good);
+    }
+
+    .names {
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .names li {
+      padding: 10px 12px;
+      background: #f7f9fc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h1>课程空闲查询</h1>
+      <div class="field">
+        <label for="fileInput">导入 Excel</label>
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+      </div>
+      <div class="field">
+        <label for="majorSelect">选择专业</label>
+        <select id="majorSelect" disabled>
+          <option>请先导入文件</option>
+        </select>
+      </div>
+      <div class="field">
+        <button id="reloadBtn" class="primary" disabled>重新解析</button>
+      </div>
+      <div class="card status" id="status">
+        正在加载本地数据...
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="card">
+        <div class="result-head">
+          <div>
+            <div style="font-size:13px;color:var(--muted);">时间段</div>
+            <div id="selectedTime" style="font-size:18px;font-weight:600;">未选择</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:13px;color:var(--muted);">空闲人数</div>
+            <div class="count" id="count">0</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;" class="tabs" id="timeTabs"></div>
+      </section>
+
+      <section class="card">
+        <div style="font-size:13px;color:var(--muted);">学生名单</div>
+        <ul class="names" id="nameList"></ul>
+        <div class="empty" id="emptyState" style="display:none;margin-top:10px;">这里会显示该专业在所选时间段空闲的学生。</div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      records: [],
+      timeHeaders: [],
+      majors: [],
+      selectedMajor: '',
+      selectedTime: '',
+      sourceName: ''
+    };
+
+    const fileInput = document.getElementById('fileInput');
+    const majorSelect = document.getElementById('majorSelect');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const statusEl = document.getElementById('status');
+    const timeTabs = document.getElementById('timeTabs');
+    const selectedTimeEl = document.getElementById('selectedTime');
+    const countEl = document.getElementById('count');
+    const nameList = document.getElementById('nameList');
+    const emptyState = document.getElementById('emptyState');
+
+    function text(v) {
+      return String(v ?? '').trim();
+    }
+
+    function normalizeMajorName(v) {
+      const raw = text(v);
+      if (!raw || raw === '无课学生') return '';
+      return raw.replace(/^\d+\s*/, '');
+    }
+
+    function inferHeaders(rows) {
+      const first = rows.find(row => row.some(cell => text(cell)));
+      if (!first) return [];
+      return first.map(cell => text(cell));
+    }
+
+    function parseRows(sheetName, rows, globalTimeSet) {
+      if (!rows.length) return [];
+      const headers = inferHeaders(rows);
+      const startCol = Math.min(1, headers.length);
+      for (let i = startCol; i < headers.length; i++) {
+        if (headers[i] && headers[i] !== '无课个数') globalTimeSet.add(headers[i]);
+      }
+
+      const dataStart = rows.findIndex(row => row.some(cell => text(cell)));
+      const bodyStart = Math.max(1, dataStart + 1);
+      const out = [];
+
+      for (let r = bodyStart; r < rows.length; r++) {
+        const row = rows[r] || [];
+        const major = normalizeMajorName(row[0]);
+        if (!major || major === '专业/节次') continue;
+
+        const availability = {};
+        for (let c = 1; c < headers.length; c++) {
+          const header = headers[c];
+          if (!header || header === '无课个数') continue;
+          const name = text(row[c]);
+          if (!name) continue;
+          availability[header] = name;
+        }
+
+        out.push({ major, availability });
+      }
+
+      return out;
+    }
+
+    async function loadWorkbook(file) {
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: 'array' });
+      const globalTimeSet = new Set();
+      const records = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+        records.push(...parseRows(sheetName, rows, globalTimeSet));
+      }
+
+      const majors = [...new Set(records.map(r => r.major).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+      const timeHeaders = [...globalTimeSet];
+      return { records, majors, timeHeaders };
+    }
+
+    function loadFromPreloadedData() {
+      if (!window.PRELOADED_AVAILABILITY) return false;
+      const data = window.PRELOADED_AVAILABILITY;
+      state.records = data.records || [];
+      state.majors = data.majors || [];
+      state.timeHeaders = data.timeHeaders || [];
+      state.sourceName = data.sourceName || '本地数据';
+      state.selectedMajor = state.majors[0] || '';
+      state.selectedTime = state.timeHeaders[0] || '';
+      renderMajors();
+      renderTimeTabs();
+      updateStatus();
+      renderResult();
+      return true;
+    }
+
+    function renderTimeTabs() {
+      timeTabs.innerHTML = '';
+      for (const time of state.timeHeaders) {
+        const btn = document.createElement('button');
+        btn.className = 'tab' + (time === state.selectedTime ? ' active' : '');
+        btn.textContent = time;
+        btn.addEventListener('click', () => {
+          state.selectedTime = time;
+          renderTimeTabs();
+          renderResult();
+        });
+        timeTabs.appendChild(btn);
+      }
+    }
+
+    function renderResult() {
+      selectedTimeEl.textContent = state.selectedTime || '未选择';
+
+      if (!state.selectedMajor || !state.selectedTime) {
+        countEl.textContent = '0';
+        nameList.innerHTML = '';
+        emptyState.style.display = 'block';
+        return;
+      }
+
+      const seen = new Set();
+      const names = [];
+      for (const record of state.records) {
+        if (record.major !== state.selectedMajor) continue;
+        const name = record.name || record.availability[state.selectedTime];
+        if (!name) continue;
+        if (seen.has(name)) continue;
+        seen.add(name);
+        names.push(name);
+      }
+
+      countEl.textContent = String(names.length);
+      nameList.innerHTML = '';
+      emptyState.style.display = names.length ? 'none' : 'block';
+
+      for (const name of names) {
+        const li = document.createElement('li');
+        li.textContent = name;
+        nameList.appendChild(li);
+      }
+    }
+
+    function renderMajors() {
+      majorSelect.innerHTML = '';
+      for (const major of state.majors) {
+        const option = document.createElement('option');
+        option.value = major;
+        option.textContent = major;
+        majorSelect.appendChild(option);
+      }
+      majorSelect.disabled = state.majors.length === 0;
+      reloadBtn.disabled = !state.sourceName;
+      if (state.majors.length) {
+        state.selectedMajor = state.majors[0];
+        majorSelect.value = state.selectedMajor;
+      }
+    }
+
+    function updateStatus() {
+      if (!state.sourceName) {
+        statusEl.textContent = '先导入 Excel 文件。规则是：时间格里有名字，就表示该学生在这个时间空闲。';
+        return;
+      }
+      statusEl.textContent = `已加载：${state.sourceName}。共 ${state.records.length} 条记录，${state.majors.length} 个专业，${state.timeHeaders.length} 个时间段。`;
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      state.sourceName = file.name;
+      statusEl.textContent = '正在解析...';
+      try {
+        const loaded = await loadWorkbook(file);
+        state.records = loaded.records;
+        state.majors = loaded.majors;
+        state.timeHeaders = loaded.timeHeaders;
+        state.selectedTime = state.timeHeaders[0] || '';
+        renderMajors();
+        renderTimeTabs();
+        updateStatus();
+        renderResult();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = '解析失败。请确认文件是标准 Excel 表格。';
+      }
+    });
+
+    majorSelect.addEventListener('change', () => {
+      state.selectedMajor = majorSelect.value;
+      renderResult();
+    });
+
+    reloadBtn.addEventListener('click', () => {
+      if (!fileInput.files || !fileInput.files[0]) return;
+      fileInput.dispatchEvent(new Event('change'));
+    });
+
+    loadFromPreloadedData();
+  </script>
+</body>
+</html>
