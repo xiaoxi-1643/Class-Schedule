@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>课程空闲查询</title>
-  <script src="./vendor/xlsx.full.min.js?v=20260820-2"></script>
-  <script src="./availability-data.js?v=20260820-2"></script>
+  <script src="./vendor/xlsx.full.min.js?v=20260823-5"></script>
+  <script src="./availability-data.js?v=20260823-5"></script>
   <style>
     :root {
       color-scheme: light;
@@ -158,9 +158,146 @@
       font-size: 14px;
     }
 
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .mode-tab {
+      height: 38px;
+      font-weight: 600;
+    }
+
+    .mode-tab.active {
+      background: var(--accent-soft);
+      border-color: #b8c8ff;
+      color: var(--accent);
+    }
+
+    .schedule-toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 110px 110px auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .time-picker {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .time-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .time-option input {
+      accent-color: var(--accent);
+    }
+
+    .setting-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .major-setting {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .major-setting-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .major-setting input {
+      width: 58px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 8px;
+      font: inherit;
+    }
+
+    .schedule-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .summary-item {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      font-size: 13px;
+    }
+
+    .schedule-group {
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .schedule-group:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .group-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 600;
+    }
+
+    .group-students {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .student-chip {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #f7f9fc;
+      font-size: 13px;
+    }
+
+    .warning {
+      color: #a35a00;
+      background: #fff7e8;
+      border-color: #f1d29c;
+    }
+
     @media (max-width: 900px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+      .schedule-toolbar { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -181,12 +318,17 @@
       <div class="field">
         <button id="reloadBtn" class="primary" disabled>重新解析</button>
       </div>
+      <div class="mode-tabs" role="tablist">
+        <button id="queryModeBtn" class="mode-tab active" type="button">查询空闲</button>
+        <button id="scheduleModeBtn" class="mode-tab" type="button">自动排课</button>
+      </div>
       <div class="card status" id="status">
         正在加载本地数据...
       </div>
     </aside>
 
     <main class="main">
+      <div id="queryPanel">
       <section class="card">
         <div class="result-head">
           <div>
@@ -202,10 +344,49 @@
       </section>
 
       <section class="card">
-        <div style="font-size:13px;color:var(--muted);">学生名单</div>
+        <div style="font-size:13px;color:var(--muted);">学生序号</div>
         <ul class="names" id="nameList"></ul>
         <div class="empty" id="emptyState" style="display:none;margin-top:10px;">这里会显示该专业在所选时间段空闲的学生。</div>
       </section>
+      </div>
+
+      <div id="schedulePanel" style="display:none;">
+        <section class="card">
+          <div style="font-size:18px;font-weight:600;">自动排课设置</div>
+          <div class="status">每个专业单独排课。学生只会被安排到自己的空闲时间，同一时间段可以开多组课。</div>
+
+          <div style="margin-top:16px;">
+            <div style="font-size:13px;color:var(--muted);">各专业人数范围（最少 - 最多）</div>
+            <div class="setting-grid" id="capacitySettings" style="margin-top:10px;"></div>
+          </div>
+
+          <div class="schedule-toolbar" style="margin-top:16px;">
+            <div class="field" style="margin:0;">
+              <label for="scheduleMajorSelect">排课专业</label>
+              <select id="scheduleMajorSelect"></select>
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="scheduleMinCapacity">当前专业最少人数</label>
+              <input id="scheduleMinCapacity" type="number" min="1" max="100" value="1" />
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="scheduleCapacity">当前专业最多人数</label>
+              <input id="scheduleCapacity" type="number" min="1" max="100" value="8" />
+            </div>
+            <button id="generateScheduleBtn" class="primary" type="button">生成排课</button>
+          </div>
+
+          <div style="margin-top:16px;">
+            <div style="font-size:13px;color:var(--muted);">选择候选时间段</div>
+            <div class="time-picker" id="scheduleTimePicker"></div>
+          </div>
+        </section>
+
+        <section class="card" style="margin-top:16px;">
+          <div id="scheduleSummary" class="schedule-summary"></div>
+          <div id="scheduleResult" class="empty">选择时间段后点击“生成排课”。</div>
+        </section>
+      </div>
     </main>
   </div>
 
@@ -216,7 +397,12 @@
       majors: [],
       selectedMajor: '',
       selectedTime: '',
-      sourceName: ''
+      sourceName: '',
+      studentNumbers: new Map(),
+      capacityByMajor: {},
+      minCapacityByMajor: {},
+      scheduleMajor: '',
+      selectedScheduleTimes: new Set()
     };
 
     const fileInput = document.getElementById('fileInput');
@@ -228,6 +414,30 @@
     const countEl = document.getElementById('count');
     const nameList = document.getElementById('nameList');
     const emptyState = document.getElementById('emptyState');
+    const queryModeBtn = document.getElementById('queryModeBtn');
+    const scheduleModeBtn = document.getElementById('scheduleModeBtn');
+    const queryPanel = document.getElementById('queryPanel');
+    const schedulePanel = document.getElementById('schedulePanel');
+    const capacitySettings = document.getElementById('capacitySettings');
+    const scheduleMajorSelect = document.getElementById('scheduleMajorSelect');
+    const scheduleMinCapacity = document.getElementById('scheduleMinCapacity');
+    const scheduleCapacity = document.getElementById('scheduleCapacity');
+    const scheduleTimePicker = document.getElementById('scheduleTimePicker');
+    const generateScheduleBtn = document.getElementById('generateScheduleBtn');
+    const scheduleSummary = document.getElementById('scheduleSummary');
+    const scheduleResult = document.getElementById('scheduleResult');
+    const defaultFreeTimes = [
+      '周五5-6节',
+      '周五7-8节',
+      '周六1-2节',
+      '周六3-4节',
+      '周六5-6节',
+      '周六7-8节',
+      '周日1-2节',
+      '周日3-4节',
+      '周日5-6节',
+      '周日7-8节'
+    ];
 
     function text(v) {
       return String(v ?? '').trim();
@@ -294,6 +504,445 @@
       return { records, majors, timeHeaders };
     }
 
+    function rebuildStudentNumbers() {
+      state.studentNumbers = new Map();
+      const nextNumber = new Map();
+
+      function addStudent(major, rawName) {
+        const name = text(rawName);
+        if (!major || !name) return '';
+        if (!nextNumber.has(major)) nextNumber.set(major, 1);
+        const key = `${major}\u0000${name}`;
+        if (!state.studentNumbers.has(key)) {
+          state.studentNumbers.set(key, nextNumber.get(major));
+          nextNumber.set(major, nextNumber.get(major) + 1);
+        }
+        return String(state.studentNumbers.get(key));
+      }
+
+      for (const record of state.records) {
+        if (record.studentNo) continue;
+        if (record.time) {
+          record.studentNo = addStudent(record.major, record.name);
+        } else if (record.availability) {
+          for (const [time, name] of Object.entries(record.availability)) {
+            record.availability[time] = addStudent(record.major, name);
+          }
+        }
+      }
+    }
+
+    function getMajorStudents(major) {
+      const students = new Map();
+
+      function addAvailability(studentNo, time) {
+        const id = text(studentNo);
+        if (!id || !time) return;
+        if (!students.has(id)) students.set(id, new Set());
+        students.get(id).add(time);
+      }
+
+      for (const record of state.records) {
+        if (record.major !== major) continue;
+        if (record.time) {
+          addAvailability(record.studentNo || record.name, record.time);
+        } else if (record.availability) {
+          for (const [time, studentNo] of Object.entries(record.availability)) {
+            addAvailability(studentNo, time);
+          }
+        }
+      }
+
+      return [...students.entries()].map(([studentNo, availableTimes]) => ({
+        studentNo,
+        availableTimes
+      }));
+    }
+
+    function applyDefaultFreeTimes() {
+      for (const time of defaultFreeTimes) {
+        if (!state.timeHeaders.includes(time)) state.timeHeaders.push(time);
+      }
+
+      const existing = new Set(
+        state.records
+          .filter(record => record.time)
+          .map(record => `${record.major}\u0000${record.time}\u0000${record.studentNo}`)
+      );
+
+      for (const major of state.majors) {
+        const students = getMajorStudents(major);
+        for (const student of students) {
+          for (const time of defaultFreeTimes) {
+            const key = `${major}\u0000${time}\u0000${student.studentNo}`;
+            if (existing.has(key)) continue;
+            state.records.push({
+              major,
+              time,
+              studentNo: student.studentNo
+            });
+            existing.add(key);
+          }
+        }
+      }
+    }
+
+    function renderScheduleControls() {
+      capacitySettings.innerHTML = '';
+      scheduleMajorSelect.innerHTML = '';
+
+      for (const major of state.majors) {
+        if (!state.capacityByMajor[major]) state.capacityByMajor[major] = 8;
+        if (!state.minCapacityByMajor[major]) state.minCapacityByMajor[major] = 1;
+
+        const setting = document.createElement('label');
+        setting.className = 'major-setting';
+        setting.innerHTML = `<span>${major}</span>`;
+
+        const controls = document.createElement('span');
+        controls.className = 'major-setting-controls';
+
+        const minLabel = document.createElement('span');
+        minLabel.textContent = '最少';
+        const minInput = document.createElement('input');
+        minInput.type = 'number';
+        minInput.min = '1';
+        minInput.max = '100';
+        minInput.value = state.minCapacityByMajor[major];
+        minInput.title = `${major} 每节课最少人数`;
+        minInput.addEventListener('change', () => {
+          const value = Math.max(1, Math.min(100, Number(minInput.value) || 1));
+          minInput.value = value;
+          state.minCapacityByMajor[major] = value;
+          if (value > state.capacityByMajor[major]) {
+            state.capacityByMajor[major] = value;
+            maxInput.value = value;
+          }
+          if (state.scheduleMajor === major) scheduleMinCapacity.value = value;
+        });
+
+        const maxLabel = document.createElement('span');
+        maxLabel.textContent = '最多';
+        const maxInput = document.createElement('input');
+        maxInput.type = 'number';
+        maxInput.min = '1';
+        maxInput.max = '100';
+        maxInput.value = state.capacityByMajor[major];
+        maxInput.title = `${major} 每节课最多人数`;
+        maxInput.addEventListener('change', () => {
+          const value = Math.max(
+            state.minCapacityByMajor[major],
+            Math.min(100, Number(maxInput.value) || 8)
+          );
+          maxInput.value = value;
+          state.capacityByMajor[major] = value;
+          if (state.scheduleMajor === major) scheduleCapacity.value = value;
+        });
+
+        controls.append(minLabel, minInput, maxLabel, maxInput);
+        setting.appendChild(controls);
+        capacitySettings.appendChild(setting);
+
+        const option = document.createElement('option');
+        option.value = major;
+        option.textContent = major;
+        scheduleMajorSelect.appendChild(option);
+      }
+
+      if (!state.scheduleMajor || !state.majors.includes(state.scheduleMajor)) {
+        state.scheduleMajor = state.majors[0] || '';
+      }
+      scheduleMajorSelect.value = state.scheduleMajor;
+      scheduleMinCapacity.value = state.minCapacityByMajor[state.scheduleMajor] || 1;
+      scheduleCapacity.value = state.capacityByMajor[state.scheduleMajor] || 8;
+
+      scheduleTimePicker.innerHTML = '';
+      for (const time of state.timeHeaders) {
+        const label = document.createElement('label');
+        label.className = 'time-option';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = time;
+        checkbox.checked = state.selectedScheduleTimes.has(time);
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) {
+            state.selectedScheduleTimes.add(time);
+          } else {
+            state.selectedScheduleTimes.delete(time);
+          }
+        });
+
+        const textNode = document.createElement('span');
+        textNode.textContent = time;
+        label.append(checkbox, textNode);
+        scheduleTimePicker.appendChild(label);
+      }
+    }
+
+    function renderSchedule(schedule) {
+      scheduleSummary.innerHTML = '';
+      scheduleResult.innerHTML = '';
+
+      const summary = [
+        `专业：${schedule.major}`,
+        `学生总数：${schedule.totalStudents}`,
+        `已安排：${schedule.assignedStudents}`,
+        `未安排：${schedule.unassigned.length}`,
+        `课程数：${schedule.groups.length}`,
+        `人数范围：${schedule.minCapacity}-${schedule.capacity}`
+      ];
+      for (const item of summary) {
+        const node = document.createElement('div');
+        node.className = 'summary-item';
+        node.textContent = item;
+        scheduleSummary.appendChild(node);
+      }
+
+      if (schedule.unassigned.length) {
+        const warning = document.createElement('div');
+        warning.className = 'card warning';
+        warning.textContent = `以下学生在所选时间段都没有空闲时间：${schedule.unassigned.map(student => `学生 ${student.studentNo}`).join('、')}`;
+        scheduleResult.appendChild(warning);
+      }
+
+      if (schedule.constraintIssues.length) {
+        const warning = document.createElement('div');
+        warning.className = 'card warning';
+        warning.textContent = `以下时间段未生成课程，因为无法满足每节课至少 ${schedule.minCapacity} 人、最多 ${schedule.capacity} 人：${schedule.constraintIssues.map(issue => `${issue.time}（${issue.count}人）`).join('、')}。这些时间段的学生已尝试重新安排到其他候选时间。`;
+        scheduleResult.appendChild(warning);
+      }
+
+      if (!schedule.groups.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = '没有生成课程组，请检查候选时间段和学生空闲情况。';
+        scheduleResult.appendChild(empty);
+        return;
+      }
+
+      for (const group of schedule.groups) {
+        const section = document.createElement('div');
+        section.className = 'schedule-group';
+
+        const title = document.createElement('div');
+        title.className = 'group-title';
+        title.innerHTML = `<span>${group.time} · 第${group.classNo}组</span><span>${group.students.length}/${schedule.capacity}人</span>`;
+        section.appendChild(title);
+
+        const students = document.createElement('div');
+        students.className = 'group-students';
+        for (const studentNo of group.students) {
+          const chip = document.createElement('span');
+          chip.className = 'student-chip';
+          chip.textContent = `学生 ${studentNo}`;
+          students.appendChild(chip);
+        }
+        section.appendChild(students);
+        scheduleResult.appendChild(section);
+      }
+    }
+
+    function planGroups(studentIds, minCapacity, maxCapacity) {
+      if (!studentIds.length) return [];
+      const groupCount = Math.ceil(studentIds.length / maxCapacity);
+      if (studentIds.length < groupCount * minCapacity) return null;
+
+      const baseSize = Math.floor(studentIds.length / groupCount);
+      const extra = studentIds.length % groupCount;
+      const groups = [];
+      let offset = 0;
+      for (let index = 0; index < groupCount; index++) {
+        const size = baseSize + (index < extra ? 1 : 0);
+        if (size < minCapacity || size > maxCapacity) return null;
+        groups.push(studentIds.slice(offset, offset + size));
+        offset += size;
+      }
+      return groups;
+    }
+
+    function largestValidCount(count, minCapacity, maxCapacity) {
+      for (let size = count; size >= 0; size--) {
+        if (size === 0 || planGroups(Array(size).fill(null), minCapacity, maxCapacity)) {
+          return size;
+        }
+      }
+      return 0;
+    }
+
+    function groupViolation(studentIds, minCapacity, maxCapacity) {
+      const count = studentIds.length;
+      if (!count) return 0;
+      const groupCount = Math.ceil(count / maxCapacity);
+      return Math.max(0, groupCount * minCapacity - count);
+    }
+
+    function totalViolation(byTime, minCapacity, maxCapacity) {
+      let total = 0;
+      for (const students of byTime.values()) {
+        total += groupViolation(students, minCapacity, maxCapacity);
+      }
+      return total;
+    }
+
+    function generateSchedule() {
+      const major = scheduleMajorSelect.value;
+      const minCapacity = Math.max(1, Math.min(100, Number(scheduleMinCapacity.value) || 1));
+      const capacity = Math.max(minCapacity, Math.min(100, Number(scheduleCapacity.value) || 8));
+      state.minCapacityByMajor[major] = minCapacity;
+      state.capacityByMajor[major] = capacity;
+      scheduleMinCapacity.value = minCapacity;
+      scheduleCapacity.value = capacity;
+
+      const selectedTimes = state.timeHeaders.filter(time => state.selectedScheduleTimes.has(time));
+      const activeTimes = new Set(selectedTimes);
+      const students = getMajorStudents(major);
+      const candidates = students.map(student => ({
+        ...student,
+        candidates: selectedTimes.filter(time => student.availableTimes.has(time))
+      }));
+
+      const studentsByNumber = new Map(candidates.map(student => [student.studentNo, student]));
+      const unassignedNumbers = new Set(
+        candidates.filter(student => !student.candidates.length).map(student => student.studentNo)
+      );
+      const assignable = candidates
+        .filter(student => student.candidates.length)
+        .sort((a, b) => a.candidates.length - b.candidates.length || Number(a.studentNo) - Number(b.studentNo));
+      const byTime = new Map(selectedTimes.map(time => [time, []]));
+      const candidatePool = student => {
+        const available = student.candidates.filter(time => activeTimes.has(time));
+        const preferred = available.filter(time => !defaultFreeTimes.includes(time));
+        if (preferred.length) return preferred;
+
+        const fallback = available.filter(time => defaultFreeTimes.includes(time));
+        return fallback.length ? [fallback[0]] : available;
+      };
+
+      for (const student of assignable) {
+        const bestTime = candidatePool(student).sort((a, b) => {
+          const aLoad = byTime.get(a).length;
+          const bLoad = byTime.get(b).length;
+          const aNewGroup = Math.ceil((aLoad + 1) / capacity) - Math.ceil(aLoad / capacity);
+          const bNewGroup = Math.ceil((bLoad + 1) / capacity) - Math.ceil(bLoad / capacity);
+          return aNewGroup - bNewGroup || aLoad - bLoad || a.localeCompare(b, 'zh-Hans-CN');
+        })[0];
+        byTime.get(bestTime).push(student.studentNo);
+      }
+
+      // Move students between available times while this improves minimum-size violations.
+      for (let pass = 0; pass < assignable.length * 2; pass++) {
+        const currentViolation = totalViolation(byTime, minCapacity, capacity);
+        if (!currentViolation) break;
+        let bestMove = null;
+        let bestViolation = currentViolation;
+
+        for (const student of assignable) {
+          const source = [...byTime.entries()].find(([, ids]) => ids.includes(student.studentNo));
+          if (!source) continue;
+          for (const target of candidatePool(student)) {
+            if (target === source[0]) continue;
+            const sourceIds = source[1];
+            const sourceIndex = sourceIds.indexOf(student.studentNo);
+            sourceIds.splice(sourceIndex, 1);
+            byTime.get(target).push(student.studentNo);
+            const nextViolation = totalViolation(byTime, minCapacity, capacity);
+            byTime.get(target).pop();
+            sourceIds.splice(sourceIndex, 0, student.studentNo);
+
+            if (nextViolation < bestViolation) {
+              bestViolation = nextViolation;
+              bestMove = { student, source: source[0], target };
+            }
+          }
+        }
+
+        if (!bestMove) break;
+        const sourceIds = byTime.get(bestMove.source);
+        sourceIds.splice(sourceIds.indexOf(bestMove.student.studentNo), 1);
+        byTime.get(bestMove.target).push(bestMove.student.studentNo);
+      }
+
+      const skippedTimes = [];
+      const chooseBestTime = (student, excludedTimes = new Set()) => candidatePool(student)
+        .filter(time => !excludedTimes.has(time))
+        .sort((a, b) => {
+          const aLoad = byTime.get(a).length;
+          const bLoad = byTime.get(b).length;
+          return aLoad - bLoad || a.localeCompare(b, 'zh-Hans-CN');
+        })[0];
+
+      // Remove invalid time slots and try to move their students elsewhere.
+      for (let pass = 0; pass < selectedTimes.length + students.length; pass++) {
+        const invalidTimes = [...activeTimes].filter(time => {
+          const assigned = byTime.get(time);
+          return assigned.length > 0 &&
+            largestValidCount(assigned.length, minCapacity, capacity) < assigned.length;
+        });
+        if (!invalidTimes.length) break;
+
+        const movedStudents = [];
+        const excludedByStudent = new Map();
+        for (const time of invalidTimes) {
+          const assigned = byTime.get(time);
+          const keepCount = largestValidCount(assigned.length, minCapacity, capacity);
+          const moved = assigned.splice(keepCount);
+
+          if (keepCount === 0) {
+            skippedTimes.push({ time, count: moved.length });
+            activeTimes.delete(time);
+            movedStudents.push(...moved);
+          } else {
+            for (const studentNo of moved) {
+              excludedByStudent.set(studentNo, new Set([time]));
+            }
+            movedStudents.push(...moved);
+          }
+        }
+
+        for (const studentNo of movedStudents) {
+          const student = studentsByNumber.get(studentNo);
+          const target = chooseBestTime(student, excludedByStudent.get(studentNo));
+          if (!target) {
+            unassignedNumbers.add(studentNo);
+            continue;
+          }
+          unassignedNumbers.delete(studentNo);
+          byTime.get(target).push(studentNo);
+        }
+      }
+
+      const groups = [];
+      for (const time of activeTimes) {
+        const assigned = byTime.get(time);
+        const plannedGroups = planGroups(assigned, minCapacity, capacity);
+        if (!plannedGroups) continue;
+
+        for (let index = 0; index < plannedGroups.length; index++) {
+          groups.push({
+            time,
+            classNo: index + 1,
+            students: plannedGroups[index]
+          });
+        }
+      }
+
+      const unassigned = [...unassignedNumbers]
+        .map(studentNo => studentsByNumber.get(studentNo))
+        .filter(Boolean);
+
+      renderSchedule({
+        major,
+        minCapacity,
+        capacity,
+        totalStudents: students.length,
+        assignedStudents: students.length - unassigned.length,
+        unassigned,
+        groups,
+        constraintIssues: skippedTimes
+      });
+    }
+
     function loadFromPreloadedData() {
       if (!window.PRELOADED_AVAILABILITY) return false;
       const data = window.PRELOADED_AVAILABILITY;
@@ -303,8 +952,14 @@
       state.sourceName = data.sourceName || '本地数据';
       state.selectedMajor = state.majors[0] || '';
       state.selectedTime = state.timeHeaders[0] || '';
+      state.scheduleMajor = state.majors[0] || '';
+      state.selectedScheduleTimes = new Set(state.timeHeaders);
+      rebuildStudentNumbers();
+      applyDefaultFreeTimes();
+      state.selectedScheduleTimes = new Set(state.timeHeaders);
       renderMajors();
       renderTimeTabs();
+      renderScheduleControls();
       updateStatus();
       renderResult();
       return true;
@@ -336,29 +991,29 @@
       }
 
       const seen = new Set();
-      const names = [];
+      const studentNumbers = [];
       for (const record of state.records) {
         if (record.major !== state.selectedMajor) continue;
-        let name = '';
+        let studentNo = '';
         if (record.time) {
           if (record.time !== state.selectedTime) continue;
-          name = record.name;
+          studentNo = record.studentNo || record.name;
         } else if (record.availability) {
-          name = record.availability[state.selectedTime];
+          studentNo = record.availability[state.selectedTime];
         }
-        if (!name) continue;
-        if (seen.has(name)) continue;
-        seen.add(name);
-        names.push(name);
+        if (!studentNo) continue;
+        if (seen.has(studentNo)) continue;
+        seen.add(studentNo);
+        studentNumbers.push(studentNo);
       }
 
-      countEl.textContent = String(names.length);
+      countEl.textContent = String(studentNumbers.length);
       nameList.innerHTML = '';
-      emptyState.style.display = names.length ? 'none' : 'block';
+      emptyState.style.display = studentNumbers.length ? 'none' : 'block';
 
-      for (const name of names) {
+      for (const studentNo of studentNumbers) {
         const li = document.createElement('li');
-        li.textContent = name;
+        li.textContent = `学生 ${studentNo}`;
         nameList.appendChild(li);
       }
     }
@@ -398,8 +1053,14 @@
         state.majors = loaded.majors;
         state.timeHeaders = loaded.timeHeaders;
         state.selectedTime = state.timeHeaders[0] || '';
+        state.scheduleMajor = state.majors[0] || '';
+        state.selectedScheduleTimes = new Set(state.timeHeaders);
+        rebuildStudentNumbers();
+        applyDefaultFreeTimes();
+        state.selectedScheduleTimes = new Set(state.timeHeaders);
         renderMajors();
         renderTimeTabs();
+        renderScheduleControls();
         updateStatus();
         renderResult();
       } catch (err) {
@@ -417,6 +1078,44 @@
       if (!fileInput.files || !fileInput.files[0]) return;
       fileInput.dispatchEvent(new Event('change'));
     });
+
+    queryModeBtn.addEventListener('click', () => {
+      queryModeBtn.classList.add('active');
+      scheduleModeBtn.classList.remove('active');
+      queryPanel.style.display = 'block';
+      schedulePanel.style.display = 'none';
+    });
+
+    scheduleModeBtn.addEventListener('click', () => {
+      scheduleModeBtn.classList.add('active');
+      queryModeBtn.classList.remove('active');
+      queryPanel.style.display = 'none';
+      schedulePanel.style.display = 'block';
+      renderScheduleControls();
+    });
+
+    scheduleMajorSelect.addEventListener('change', () => {
+      state.scheduleMajor = scheduleMajorSelect.value;
+      scheduleMinCapacity.value = state.minCapacityByMajor[state.scheduleMajor] || 1;
+      scheduleCapacity.value = state.capacityByMajor[state.scheduleMajor] || 8;
+    });
+
+    scheduleMinCapacity.addEventListener('change', () => {
+      const value = Math.max(1, Math.min(100, Number(scheduleMinCapacity.value) || 1));
+      scheduleMinCapacity.value = value;
+      state.minCapacityByMajor[state.scheduleMajor] = value;
+    });
+
+    scheduleCapacity.addEventListener('change', () => {
+      const value = Math.max(
+        state.minCapacityByMajor[state.scheduleMajor] || 1,
+        Math.min(100, Number(scheduleCapacity.value) || 8)
+      );
+      scheduleCapacity.value = value;
+      state.capacityByMajor[state.scheduleMajor] = value;
+    });
+
+    generateScheduleBtn.addEventListener('click', generateSchedule);
 
     loadFromPreloadedData();
   </script>
