@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>课程空闲查询</title>
-  <script src="./vendor/xlsx.full.min.js?v=20260823-5"></script>
-  <script src="./availability-data.js?v=20260823-5"></script>
+  <script src="./vendor/xlsx.full.min.js?v=20260905-1"></script>
+  <script src="./availability-data.js?v=20260905-1"></script>
   <style>
     :root {
       color-scheme: light;
@@ -273,6 +273,26 @@
       font-weight: 600;
     }
 
+    .group-teacher {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .group-teacher input {
+      width: min(280px, 100%);
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+
     .group-students {
       display: flex;
       flex-wrap: wrap;
@@ -402,7 +422,8 @@
       capacityByMajor: {},
       minCapacityByMajor: {},
       scheduleMajor: '',
-      selectedScheduleTimes: new Set()
+      selectedScheduleTimes: new Set(),
+      teacherByGroup: {}
     };
 
     const fileInput = document.getElementById('fileInput');
@@ -447,6 +468,12 @@
       const raw = text(v);
       if (!raw || raw === '无课学生') return '';
       return raw.replace(/^\d+\s*/, '');
+    }
+
+    function studentIdentity(v) {
+      const raw = text(v);
+      const id = raw.match(/[（(]\s*([0-9]{4}K[0-9]+)\s*[）)]/i);
+      return id ? id[1].toUpperCase() : raw.replace(/[（)]/g, '(').replace(/[）]/g, ')');
     }
 
     function inferHeaders(rows) {
@@ -512,7 +539,7 @@
         const name = text(rawName);
         if (!major || !name) return '';
         if (!nextNumber.has(major)) nextNumber.set(major, 1);
-        const key = `${major}\u0000${name}`;
+        const key = `${major}\u0000${studentIdentity(name)}`;
         if (!state.studentNumbers.has(key)) {
           state.studentNumbers.set(key, nextNumber.get(major));
           nextNumber.set(major, nextNumber.get(major) + 1);
@@ -724,11 +751,26 @@
       for (const group of schedule.groups) {
         const section = document.createElement('div');
         section.className = 'schedule-group';
+        const groupKey = `${schedule.major}\u0000${group.time}\u0000${group.classNo}`;
 
         const title = document.createElement('div');
         title.className = 'group-title';
         title.innerHTML = `<span>${group.time} · 第${group.classNo}组</span><span>${group.students.length}/${schedule.capacity}人</span>`;
         section.appendChild(title);
+
+        const teacher = document.createElement('label');
+        teacher.className = 'group-teacher';
+        teacher.textContent = '授课老师';
+
+        const teacherInput = document.createElement('input');
+        teacherInput.type = 'text';
+        teacherInput.placeholder = '请输入老师姓名';
+        teacherInput.value = state.teacherByGroup[groupKey] || '';
+        teacherInput.addEventListener('input', () => {
+          state.teacherByGroup[groupKey] = teacherInput.value;
+        });
+        teacher.appendChild(teacherInput);
+        section.appendChild(teacher);
 
         const students = document.createElement('div');
         students.className = 'group-students';
@@ -927,7 +969,12 @@
         }
       }
 
-      const unassigned = [...unassignedNumbers]
+      const actuallyAssignedNumbers = new Set(groups.flatMap(group => group.students));
+      const finalUnassignedNumbers = new Set(
+        students.map(student => student.studentNo)
+          .filter(studentNo => !actuallyAssignedNumbers.has(studentNo))
+      );
+      const unassigned = [...finalUnassignedNumbers]
         .map(studentNo => studentsByNumber.get(studentNo))
         .filter(Boolean);
 
@@ -936,7 +983,7 @@
         minCapacity,
         capacity,
         totalStudents: students.length,
-        assignedStudents: students.length - unassigned.length,
+        assignedStudents: actuallyAssignedNumbers.size,
         unassigned,
         groups,
         constraintIssues: skippedTimes
